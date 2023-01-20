@@ -2,14 +2,35 @@
 export CGO_ENABLED=0
 
 if [[ -n "$1" ]]; then
-    go build -ldflags "-X main.Commit=-$(git rev-parse --short HEAD)"
-    GOOS=windows GOARCH=amd64 go build -ldflags "-X main.Commit=-$(git rev-parse --short HEAD)"
+    LDFLAGS="-X main.Commit=-$(git rev-parse --short HEAD)"
 else
-    go build
-    GOOS=windows GOARCH=amd64 go build
+    LDFLAGS=""
 fi
 
-zip ytarchive_linux_amd64.zip ytarchive
-zip ytarchive_windows_amd64.zip ytarchive.exe
+go mod download
 
-sha256sum ytarchive_linux_amd64.zip ytarchive_windows_amd64.zip > SHA2-256SUMS
+readarray -t goSupported <<< "$(go tool dist list)"
+
+for tuple in "${goSupported[@]}"; do
+    readarray -t -d '/' osArch <<< ${tuple}
+
+    GOOS=$(echo ${osArch[0]} | xargs)
+    GOARCH=$(echo ${osArch[1]} | xargs)
+
+    mkdir -p build/$GOOS-$GOARCH
+
+    if [[ $GOOS == "windows" ]]; then
+        binaryFileName="ytarchive.exe"
+    else
+        binaryFileName="ytarchive"
+    fi
+
+    GOOS=$GOOS GOARCH=$GOARCH go build -o build/$GOOS-$GOARCH/$binaryFileName -ldflags "$LDFLAGS" && \
+        7z a -tzip -mx=5 build/ytarchive-$GOOS-$GOARCH.zip ./build/$GOOS-$GOARCH/$binaryFileName &
+done
+
+wait
+
+cd ./build
+printf "\nChecksums:\n"
+sha256sum *.zip | tee SHA256CHKSUMS
